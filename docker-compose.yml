@@ -1,0 +1,37 @@
+version: '3.8'
+services:
+  api:
+    container_name: menome_api
+    build:
+      context: .
+      dockerfile: Dockerfile-api
+    command: "uvicorn app.main:app --reload --host 0.0.0.0"
+    ports:
+      - "8000:8000"
+    networks:
+      - api_network
+    volumes:
+      - ./config:/code/config
+
+  rabbit:
+    container_name: menome_rabbit
+    image: rabbitmq:3.12-management
+    ports:
+      - "15672:15672"
+      - "5672:5672"
+    networks:
+      - api_network
+
+  celery_worker:
+    container_name: menome_celery_worker
+    build:
+      context: .
+      dockerfile: Dockerfile-worker
+    command: celery -A worker.tasks.celery_app worker --loglevel=INFO
+    networks:
+      - api_network
+    volumes:
+      - ./config:/code/config
+networks:
+  api_network:
+    name: api_network

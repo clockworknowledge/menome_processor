@@ -1,0 +1,17 @@
+# Dockerfile-worker
+# Use the official Python 3 image as a parent image
+FROM python:3.10-slim
+
+# Set the working directory in the container to /code
+WORKDIR /code
+
+# Copy the necessary directories and files into the container at /code
+COPY ./worker /code/worker
+COPY ./models.py /code/
+COPY ./requirements.txt /code/
+COPY ./config.py /code/
+# Install any dependencies
+RUN pip install --no-cache-dir --upgrade -r requirements.txt
+
+# Set the default command to execute when creating a new container
+CMD ["celery", "-A", "worker.tasks.celery_app", "worker", "--loglevel=INFO"]
