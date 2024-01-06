@@ -125,7 +125,10 @@ async def process_unprocessed_documents(document_limit: int = Query(default=None
         unprocessed_document_ids = [record['uuid'] for record in result]
 
     logging.info(f"Found {len(unprocessed_document_ids)} unprocessed documents.")
-
+    
+    task_ids = []
+    logging.info("Queueing unprocessed documents for processing.")
+    # Queue the task in Celery
     for document_id in unprocessed_document_ids:
         try:
             logging.info(f"Queueing document {document_id} for processing.")
@@ -134,12 +137,14 @@ async def process_unprocessed_documents(document_limit: int = Query(default=None
                 result = session.run("MATCH (a:Document {uuid: $uuid}) RETURN a", {"uuid": document_id})
                 document_data = result.single().value()
                 text = document_data['text']
-                process_text_task.delay(text, document_id)  # Queue the task in Celery
+                task=process_text_task.delay(text, document_id)  # Queue the task in Celery
+                task_ids.append(task.id)
+                logging.info(f"Queued document {document_id} with task ID {task.id}")
         except Exception as e:
             logging.error(f"Failed to queue document {document_id}: {e}")
 
     logging.info("All unprocessed documents have been queued for processing.")
-    return {"message": f"Processing has been started for {len(unprocessed_document_ids)} unprocessed documents"}
+    return {"message": f"Processing has been started for {len(unprocessed_document_ids)} unprocessed documents", "task_ids": task_ids}
 
 @router.post("/token", response_model=Token, description="Returns an access token", summary="Returns an access token", tags=["Users"])
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):

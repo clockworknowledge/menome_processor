@@ -10,22 +10,36 @@ from langchain.prompts import ChatPromptTemplate
 from langchain.pydantic_v1 import BaseModel, Field
 from langchain.chains.openai_functions import create_structured_output_chain
 from langchain.chat_models import ChatOpenAI
-from  models import Question, Questions
+from  models import Question
 from celery.result import AsyncResult
+from neo4j.exceptions import Neo4jError
 
 import uuid
 import logging 
+from typing import List
 
 from config import AppConfig
 from dotenv import load_dotenv
+
+from celery import Celery
+import time
+from kombu.exceptions import OperationalError
+
 
 # Initialize environment variables if needed
 AppConfig.initialize_environment_variables()
 logging.info(f"Starting worker")
 
-from celery import Celery
-import time
-from kombu.exceptions import OperationalError
+class Questions(BaseModel):
+    """Generating hypothetical questions about text."""
+
+    questions: List[str] = Field(
+        ...,
+        description=(
+            "Generated hypothetical questions based on " "the information from the text"
+        ),
+    )
+
 
 def create_celery_app(broker_url, result_backend, max_retries=5, wait_seconds=5):
     """
@@ -118,8 +132,8 @@ def divide(x, y):
     return x / y
 
 # Celery task for processing text
-@celery_app.task(name="celery_worker.process_text_task")
-def process_text_task(textToProcess: str, documentId: str):
+@celery_app.task(bind=True, name="celery_worker.process_text_task")
+def process_text_task(self, textToProcess: str, documentId: str):
     logging.info(f"Starting process for document {documentId}")
     try: 
         doc = telegram.text_to_docs(textToProcess)  
@@ -155,17 +169,40 @@ def process_text_task(textToProcess: str, documentId: str):
                 ],
             }
 
-            # Neo4j data ingestion
-            with driver.session() as session:
-                session.run(  # Ensure your Cypher query is correct
+            try:
+                # Ingest data
+                with driver.session() as session :
+                    session.run(
                     """
-                    MERGE (p:Page {uuid: $parent_uuid})
-                    SET p.text = $parent_text, ...
-                    """,
-                    params,
-                )
-
-            # Additional processing like generating questions and summaries...
+                        MERGE (p:Page {uuid: $parent_uuid})
+                        SET p.text = $parent_text,
+                        p.name = $name,
+                        p.type = "Page",
+                        p.datecreated= datetime(),
+                        p.source=$parent_uuid
+                        WITH p
+                        CALL db.create.setVectorProperty(p, 'embedding', $parent_embedding) YIELD node
+                        WITH p
+                            MATCH (d:Document {uuid: $document_uuid})
+                            MERGE (d)-[:HAS_PAGE]->(p)
+                        WITH p 
+                        UNWIND $children AS child
+                            MERGE (c:Child {uuid: child.id})
+                            SET 
+                                c.text = child.text,
+                                c.name = child.name,
+                                c.source=child.id
+                            MERGE (c)<-[:HAS_CHILD]-(p)
+                            WITH c, child       
+                                CALL db.create.setVectorProperty(c, 'embedding', child.embedding)
+                            YIELD node
+                            RETURN count(*)
+                        """,
+                            params,
+                        )
+            except Neo4jError as e:
+                logging.error(f"Neo4j error in document {documentId}, chunk {i+1}: {e}")
+                raise    
         
         # Generate Questions for page node 
         logging.info(f"Generating questions for document {documentId}")
@@ -188,7 +225,9 @@ def process_text_task(textToProcess: str, documentId: str):
                 ),
             ]
         )
-
+     
+        logging.info(f"LLM type: {type(llm)}, Prompt: {questions_prompt}")
+        
         question_chain = create_structured_output_chain(Questions, llm, questions_prompt)
 
         for i, parent in enumerate(parent_documents):
@@ -273,9 +312,10 @@ def process_text_task(textToProcess: str, documentId: str):
                     params,
                 )
     except Exception as e:
-        logging.error(f"Failed to process document {documentId}: {e}")
-        return {"message": "Failed", "error": str(e)}
-    # Return success/fail message to user and UUID of document if successful
-    return {"message": "Success", "uuid": documentId}
+            logging.error(f"Failed to process document {documentId}: {e}")
+            return {"message": "Failed", "error": str(e), "task_id": self.request.id}
+
+    logging.info(f"Successfully processed document {documentId}")
+    return {"message": "Success", "uuid": documentId, "task_id": self.request.id}
 
 

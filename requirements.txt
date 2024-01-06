@@ -3,6 +3,7 @@ celery
 fastapi
 uvicorn
 flower
+tiktoken
 httpx==0.24.1
 loguru==0.7.1
 pymongo==4.5.0
