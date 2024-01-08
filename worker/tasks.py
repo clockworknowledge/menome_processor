@@ -24,12 +24,14 @@ from dotenv import load_dotenv
 from celery import Celery
 import time
 from kombu.exceptions import OperationalError
-
+import threading
 
 # Initialize environment variables if needed
 AppConfig.initialize_environment_variables()
 logging.info(f"Starting worker")
 
+# internal classes
+#TODO: refactor this to a separate file
 class Questions(BaseModel):
     """Generating hypothetical questions about text."""
 
@@ -39,6 +41,19 @@ class Questions(BaseModel):
             "Generated hypothetical questions based on " "the information from the text"
         ),
     )
+
+# Task states and celery configuration 
+PROCESSING_DOCUMENT = 'PROCESSING_DOCUMENT'
+PROCESSING_QUESTIONS = 'PROCESSING_QUESTIONS'
+PROCESSING_SUMMARY = 'PROCESSING_SUMMARY'
+PROCESSING_DONE = 'PROCESSING_DONE'
+PROCESSING_FAILED = 'PROCESSING_FAILED'
+PROCESSING_PAGES = 'PROCESSING_PAGES'
+
+# Assuming you have a global variable to track the number of active tasks
+active_tasks_lock = threading.Lock()
+active_tasks_count = 0
+MAX_CONCURRENT_TASKS = 2  # Set your maximum concurrent tasks
 
 
 def create_celery_app(broker_url, result_backend, max_retries=5, wait_seconds=5):
@@ -73,10 +88,25 @@ result_backend_url = "rpc://"
 
 # Create the Celery app
 celery_app = create_celery_app(broker_url, result_backend_url)
+# Set a lower acknowledgment timeout, for example, 300 seconds (5 minutes)
+celery_app.conf.broker_transport_options = {'confirm_publish': True, 'acknowledgement_timeout': 300}
+# Set heartbeat interval and prefetch count
+celery_app.conf.broker_heartbeat = 10  # seconds
+celery_app.conf.worker_prefetch_multiplier = 1
 
 
 from celery.result import AsyncResult
 from celery.exceptions import TimeoutError, CeleryError
+
+from celery.app.control import Inspect
+
+def purge_celery_queue():
+    i = Inspect(app=celery_app)
+    active_queues = i.active_queues()
+    if active_queues:
+        for queue in active_queues.keys():
+            celery_app.control.purge()
+
 
 def get_task_info(task_id: str):
     try:
@@ -132,9 +162,23 @@ def divide(x, y):
     return x / y
 
 # Celery task for processing text
-@celery_app.task(bind=True, name="celery_worker.process_text_task")
+@celery_app.task(bind=True, rate_limit="1/m", name="celery_worker.process_text_task")
 def process_text_task(self, textToProcess: str, documentId: str):
     logging.info(f"Starting process for document {documentId}")
+    self.update_state(state=PROCESSING_DOCUMENT, meta={"documentId": documentId})
+
+    global active_tasks_count
+
+    with active_tasks_lock:
+        # Check if the maximum number of concurrent tasks has been reached
+        if active_tasks_count >= MAX_CONCURRENT_TASKS:
+            # Requeue or delay the task
+            raise self.retry(countdown=10)
+
+        # Increment the count of active tasks
+        active_tasks_count += 1
+
+
     try: 
         doc = telegram.text_to_docs(textToProcess)  
 
@@ -148,6 +192,8 @@ def process_text_task(self, textToProcess: str, documentId: str):
 
         # Iterate through parent and child chunks for document and generate structure
         for i, parent in enumerate(parent_documents):
+
+            self.update_state(state=PROCESSING_PAGES, meta={"page": i+1, "total_pages": len(parent_documents), "documentId": documentId})
             logging.info(f"processing chunk {i+1} of {len(parent_documents)} for document {documentId}")
             
             child_documents = child_splitter.split_documents([parent])
@@ -231,6 +277,7 @@ def process_text_task(self, textToProcess: str, documentId: str):
         question_chain = create_structured_output_chain(Questions, llm, questions_prompt)
 
         for i, parent in enumerate(parent_documents):
+            self.update_state(state=PROCESSING_QUESTIONS, meta={"page": i+1, "total_pages": len(parent_documents), "documentId": documentId})
             logging.info(f"Generating questions for page {i+1} of {len(parent_documents)} for document {documentId}")
             generated_questions = question_chain.run(parent.page_content).questions
             limited_questions = generated_questions[:AppConfig.MAX_QUESTIONS_PER_PAGE]  # Limit the number of questions
@@ -287,6 +334,7 @@ def process_text_task(self, textToProcess: str, documentId: str):
         summary_chain = summary_prompt | llm
 
         for i, parent in enumerate(parent_documents):
+            self.update_state(state=PROCESSING_SUMMARY, meta={"page": i+1, "total_pages": len(parent_documents), "documentId": documentId})
             logging.info(f"Generating summary for page {i+1} of {len(parent_documents)} for document {documentId}")
             
             summary = summary_chain.invoke({"question": parent.page_content}).content
@@ -314,7 +362,13 @@ def process_text_task(self, textToProcess: str, documentId: str):
     except Exception as e:
             logging.error(f"Failed to process document {documentId}: {e}")
             return {"message": "Failed", "error": str(e), "task_id": self.request.id}
+    
+    finally:
+        with active_tasks_lock:
+            # Decrement the count of active tasks
+            active_tasks_count -= 1
 
+    self.update_state(state=PROCESSING_DONE, meta={"documentId": documentId})
     logging.info(f"Successfully processed document {documentId}")
     return {"message": "Success", "uuid": documentId, "task_id": self.request.id}
 

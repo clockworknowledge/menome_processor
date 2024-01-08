@@ -23,7 +23,6 @@ services:
       - api_network
 
   celery_worker:
-    container_name: menome_celery_worker
     build:
       context: .
       dockerfile: Dockerfile-worker
@@ -32,6 +31,19 @@ services:
       - api_network
     volumes:
       - ./config:/code/config
+
+  flower:
+    image: mher/flower
+    environment:
+      - CELERY_BROKER_URL=amqp://guest:guest@rabbit:5672//
+    ports:
+      - "8888:5555"
+    depends_on:
+      - rabbit
+    networks:
+      - api_network
 networks:
   api_network:
     name: api_network
+    external: true
+    

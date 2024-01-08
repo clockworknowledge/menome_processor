@@ -9,7 +9,7 @@ from neo4j import GraphDatabase  # Import Neo4j driver
 import logging
 from datetime import datetime,  timedelta
 
-from worker.tasks import process_text_task, get_task_info
+from worker.tasks import process_text_task, get_task_info, purge_celery_queue
 
 from config import AppConfig
 
@@ -114,7 +114,7 @@ driver = GraphDatabase.driver(AppConfig.NEO4J_URI, auth=(AppConfig.NEO4J_USER, A
 async def process_unprocessed_documents(document_limit: int = Query(default=None, description="Limit on number of documents to process"), current_user: User = Depends(get_current_user)):
     logging.basicConfig(level=logging.INFO)
 
-    query = "MATCH (a:Document) WHERE NOT (a)-[:HAS_PAGE]->(:Page) and a.text <> '' RETURN a.uuid as uuid"
+    query = "MATCH (a:Document) WHERE NOT (a)-[:HAS_PAGE]->(:Page) and a.text <> '' and a.process=True RETURN a.uuid as uuid"
     if document_limit is not None:
         query += f" LIMIT {document_limit}"
     
@@ -176,3 +176,17 @@ async def get_task_status(task_id: str):
     return get_task_info(task_id)
 
 
+@router.post("/purge-queue/", tags=["Queue Management"])
+async def purge_queue(current_user: User = Depends(get_current_user)):
+    """
+    Purge all tasks in the Celery queue.
+    Only accessible to authenticated users.
+    """
+    if not current_user:  # Add your own authentication checks
+        raise HTTPException(status_code=403, detail="Not authorized to purge queue")
+
+    try:
+        purge_celery_queue()
+        return {"status": "success", "message": "Celery queue purged successfully"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
