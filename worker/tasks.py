@@ -1,5 +1,8 @@
 from celery import Celery
+from celery.result import AsyncResult
+
 from neo4j import GraphDatabase
+from neo4j.exceptions import Neo4jError
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores.neo4j_vector import Neo4jVector
@@ -8,47 +11,23 @@ from langchain.text_splitter import TokenTextSplitter
 from langchain.document_loaders import telegram
 from langchain.prompts import ChatPromptTemplate
 from langchain.pydantic_v1 import BaseModel, Field
-from langchain.chains.openai_functions import create_structured_output_chain
 from langchain.chat_models import ChatOpenAI
-from  models import Question
-from celery.result import AsyncResult
-from neo4j.exceptions import Neo4jError
 
 import uuid
 import logging 
 from typing import List
-
-from config import AppConfig
 from dotenv import load_dotenv
-
-from celery import Celery
 import time
 from kombu.exceptions import OperationalError
 import threading
 
+from config import AppConfig
+from .processing_functions import generate_questions, generate_summaries
+
+
 # Initialize environment variables if needed
 AppConfig.initialize_environment_variables()
 logging.info(f"Starting worker")
-
-# internal classes
-#TODO: refactor this to a separate file
-class Questions(BaseModel):
-    """Generating hypothetical questions about text."""
-
-    questions: List[str] = Field(
-        ...,
-        description=(
-            "Generated hypothetical questions based on " "the information from the text"
-        ),
-    )
-
-# Task states and celery configuration 
-PROCESSING_DOCUMENT = 'PROCESSING_DOCUMENT'
-PROCESSING_QUESTIONS = 'PROCESSING_QUESTIONS'
-PROCESSING_SUMMARY = 'PROCESSING_SUMMARY'
-PROCESSING_DONE = 'PROCESSING_DONE'
-PROCESSING_FAILED = 'PROCESSING_FAILED'
-PROCESSING_PAGES = 'PROCESSING_PAGES'
 
 # Assuming you have a global variable to track the number of active tasks
 active_tasks_lock = threading.Lock()
@@ -82,8 +61,8 @@ def create_celery_app(broker_url, result_backend, max_retries=5, wait_seconds=5)
     return celery_app
 
 # Define your broker and result backend URLs
-broker_url = "amqp://guest:guest@rabbit:5672//"
-result_backend_url = "rpc://"
+broker_url = AppConfig.CELERY_BROKER_URL
+result_backend_url = AppConfig.CELERY_RESULT_BACKEND_URL
 
 
 # Create the Celery app
@@ -163,21 +142,21 @@ def divide(x, y):
 
 # Celery task for processing text
 @celery_app.task(bind=True, rate_limit="1/m", name="celery_worker.process_text_task")
-def process_text_task(self, textToProcess: str, documentId: str):
+def process_text_task(self, textToProcess: str, documentId: str, generateQuestions: bool, generateSummaries: bool):
     logging.info(f"Starting process for document {documentId}")
-    self.update_state(state=PROCESSING_DOCUMENT, meta={"documentId": documentId})
+    self.update_state(state=AppConfig.PROCESSING_DOCUMENT, meta={"documentId": documentId})
 
     global active_tasks_count
 
+    # Task Concurrency Management
     with active_tasks_lock:
         # Check if the maximum number of concurrent tasks has been reached
         if active_tasks_count >= MAX_CONCURRENT_TASKS:
             # Requeue or delay the task
-            raise self.retry(countdown=10)
+            raise self.retry(countdown=60)  # Retry after 60 seconds
 
         # Increment the count of active tasks
         active_tasks_count += 1
-
 
     try: 
         doc = telegram.text_to_docs(textToProcess)  
@@ -193,7 +172,7 @@ def process_text_task(self, textToProcess: str, documentId: str):
         # Iterate through parent and child chunks for document and generate structure
         for i, parent in enumerate(parent_documents):
 
-            self.update_state(state=PROCESSING_PAGES, meta={"page": i+1, "total_pages": len(parent_documents), "documentId": documentId})
+            self.update_state(state=AppConfig.PROCESSING_PAGES, meta={"page": i+1, "total_pages": len(parent_documents), "documentId": documentId})
             logging.info(f"processing chunk {i+1} of {len(parent_documents)} for document {documentId}")
             
             child_documents = child_splitter.split_documents([parent])
@@ -250,125 +229,24 @@ def process_text_task(self, textToProcess: str, documentId: str):
                 logging.error(f"Neo4j error in document {documentId}, chunk {i+1}: {e}")
                 raise    
         
-        # Generate Questions for page node 
-        logging.info(f"Generating questions for document {documentId}")
-        questions_prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    (
-                        "You are generating hypothetical questions based on the information "
-                        "found in the text. Make sure to provide full context in the generated "
-                        "questions."
-                    ),
-                ),
-                (
-                    "human",
-                    (
-                        "Use the given format to generate hypothetical questions from the "
-                        "following input: {input}"
-                    ),
-                ),
-            ]
-        )
-     
-        logging.info(f"LLM type: {type(llm)}, Prompt: {questions_prompt}")
-        
-        question_chain = create_structured_output_chain(Questions, llm, questions_prompt)
+        if generateQuestions:
+            generate_questions(self,llm, parent_documents, documentId, embeddings, driver)
 
-        for i, parent in enumerate(parent_documents):
-            self.update_state(state=PROCESSING_QUESTIONS, meta={"page": i+1, "total_pages": len(parent_documents), "documentId": documentId})
-            logging.info(f"Generating questions for page {i+1} of {len(parent_documents)} for document {documentId}")
-            generated_questions = question_chain.run(parent.page_content).questions
-            limited_questions = generated_questions[:AppConfig.MAX_QUESTIONS_PER_PAGE]  # Limit the number of questions
-
-            params = {
-                "parent_id": f"Page {i+1}",
-                "document_uuid": documentId,
-                "questions": [
-                    {
-                        "text": q, 
-                        "uuid": str(uuid.uuid4()), 
-                        "name": f"{i+1}-{iq+1}", 
-                        "embedding": embeddings.embed_query(q)
-                    }
-                    for iq, q in enumerate(limited_questions) if q  # Iterate over limited questions
-                ],
-            }
-            with driver.session() as session :
-                session.run(
-                    """
-                match (d:Document)-[]-(p:Page) where d.uuid=$document_uuid and p.name=$parent_id
-                WITH p
-                UNWIND $questions AS question
-                CREATE (q:Question {uuid: question.uuid})
-                SET q.text = question.text, q.name = question.name, q.datecreated= datetime(), q.source=p.uuid
-                MERGE (q)<-[:HAS_QUESTION]-(p)
-                WITH q, question
-                CALL db.create.setVectorProperty(q, 'embedding', question.embedding)
-                YIELD node
-                RETURN count(*)
-                """,
-                params,
-            )
             
-            
-        # Ingest summaries
+        if generateSummaries:
+            generate_summaries(self, llm, parent_documents, documentId, embeddings, driver) 
 
-        summary_prompt = ChatPromptTemplate.from_messages(
-            [
-                (
-                    "system",
-                    (
-                        "You are generating concise and accurate summaries based on the "
-                        "information found in the text."
-                    ),
-                ),
-                (
-                    "human",
-                    ("Generate a summary of the following input: {question}\n" "Summary:"),
-                ),
-            ]
-        )
-
-        summary_chain = summary_prompt | llm
-
-        for i, parent in enumerate(parent_documents):
-            self.update_state(state=PROCESSING_SUMMARY, meta={"page": i+1, "total_pages": len(parent_documents), "documentId": documentId})
-            logging.info(f"Generating summary for page {i+1} of {len(parent_documents)} for document {documentId}")
-            
-            summary = summary_chain.invoke({"question": parent.page_content}).content
-            params = {
-                "parent_id": f"Page {i+1}",
-                "uuid": str(uuid.uuid4()),
-                "summary": summary,
-                "embedding": embeddings.embed_query(summary),
-                "document_uuid": documentId
-            }
-            with driver.session() as session :
-                session.run(
-                    """
-                match (d:Document)-[]-(p:Page) where d.uuid=$document_uuid and p.name=$parent_id
-                with p
-                MERGE (p)-[:HAS_SUMMARY]->(s:Summary)
-                SET s.text = $summary, s.datecreated= datetime(), s.uuid= $uuid, s.source=p.uuid
-                WITH s
-                CALL db.create.setVectorProperty(s, 'embedding', $embedding)
-                YIELD node
-                RETURN count(*)
-                """,
-                    params,
-                )
     except Exception as e:
-            logging.error(f"Failed to process document {documentId}: {e}")
-            return {"message": "Failed", "error": str(e), "task_id": self.request.id}
+        logging.error(f"Failed to process document {documentId}: {e}")
+        self.update_state(state=AppConfig.PROCESSING_FAILED, meta={"documentId": documentId})
+        return {"message": "Failed", "error": str(e), "task_id": self.request.id}
     
     finally:
         with active_tasks_lock:
             # Decrement the count of active tasks
             active_tasks_count -= 1
 
-    self.update_state(state=PROCESSING_DONE, meta={"documentId": documentId})
+    self.update_state(state=AppConfig.PROCESSING_DONE, meta={"documentId": documentId})
     logging.info(f"Successfully processed document {documentId}")
     return {"message": "Success", "uuid": documentId, "task_id": self.request.id}
 

@@ -110,41 +110,49 @@ router = APIRouter()
 # Assuming you have a Neo4j driver instance
 driver = GraphDatabase.driver(AppConfig.NEO4J_URI, auth=(AppConfig.NEO4J_USER, AppConfig.NEO4J_PASSWORD))
 
-@router.post("/process-unprocessed-documents/", tags=["Content", "Documents"])
-async def process_unprocessed_documents(document_limit: int = Query(default=None, description="Limit on number of documents to process"), current_user: User = Depends(get_current_user)):
+from fastapi import APIRouter, Query, Depends
+
+router = APIRouter()
+
+@router.post("/process-documents/", tags=["Content", "Documents"])
+async def process_documents(
+    document_limit: int = Query(default=None, description="Limit on number of documents to process"),
+    generateQuestions: bool = Query(default=False, description="Flag to generate questions"),
+    generateSummaries: bool = Query(default=False, description="Flag to generate summaries"),
+    current_user: User = Depends(get_current_user)):
     logging.basicConfig(level=logging.INFO)
 
     query = "MATCH (a:Document) WHERE NOT (a)-[:HAS_PAGE]->(:Page) and a.text <> '' and a.process=True RETURN a.uuid as uuid"
     if document_limit is not None:
         query += f" LIMIT {document_limit}"
     
-    logging.info("Querying for unprocessed documents.")
-    unprocessed_document_ids = []
+    logging.info("Querying for documents to process.")
+    document_ids = []
     with driver.session() as session:
         result = session.run(query)
-        unprocessed_document_ids = [record['uuid'] for record in result]
+        document_ids = [record['uuid'] for record in result]
 
-    logging.info(f"Found {len(unprocessed_document_ids)} unprocessed documents.")
+    logging.info(f"Found {len(document_ids)} documents to process.")
     
     task_ids = []
-    logging.info("Queueing unprocessed documents for processing.")
-    # Queue the task in Celery
-    for document_id in unprocessed_document_ids:
+    for document_id in document_ids:
         try:
             logging.info(f"Queueing document {document_id} for processing.")
-            
             with driver.session() as session:
                 result = session.run("MATCH (a:Document {uuid: $uuid}) RETURN a", {"uuid": document_id})
                 document_data = result.single().value()
                 text = document_data['text']
-                task=process_text_task.delay(text, document_id)  # Queue the task in Celery
+                # Pass the generateQuestions and generateSummaries flags to the task
+                task = process_text_task.delay(text, document_id, generateQuestions, generateSummaries)
                 task_ids.append(task.id)
                 logging.info(f"Queued document {document_id} with task ID {task.id}")
         except Exception as e:
             logging.error(f"Failed to queue document {document_id}: {e}")
 
-    logging.info("All unprocessed documents have been queued for processing.")
-    return {"message": f"Processing has been started for {len(unprocessed_document_ids)} unprocessed documents", "task_ids": task_ids}
+    return {
+        "message": f"Processing started for {len(document_ids)} documents",
+        "task_ids": task_ids
+    }
 
 @router.post("/token", response_model=Token, description="Returns an access token", summary="Returns an access token", tags=["Users"])
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):

@@ -24,6 +24,20 @@ class AppConfig:
     RABBITMQ_USER = config('RABBITMQ_USER', default='admin')
     RABBITMQ_PASSWORD = config('RABBITMQ_PASSWORD', default='brier23glrefy!')
 
+    # Celery Configuration
+    CELERY_BROKER_URL = config.get('CELERY_BROKER_URL', default='amqp://guest:guest@rabbit:5672//')
+    CELERY_RESULT_BACKEND_URL = config.get('CELERY_RESULT_BACKEND_URL', default='rpc://')
+
+
+    # State processing messages:
+    # Task states and celery configuration 
+    PROCESSING_DOCUMENT = 'PROCESSING_DOCUMENT'
+    PROCESSING_QUESTIONS = 'PROCESSING_QUESTIONS'
+    PROCESSING_SUMMARY = 'PROCESSING_SUMMARY'
+    PROCESSING_DONE = 'PROCESSING_DONE'
+    PROCESSING_FAILED = 'PROCESSING_FAILED'
+    PROCESSING_PAGES = 'PROCESSING_PAGES'
+
     # Other Configurations
     MAX_QUESTIONS_PER_PAGE = config('MAX_QUESTIONS_PER_PAGE', cast=int, default=2)
     SECRET_KEY=config('SECRET_KEY')
