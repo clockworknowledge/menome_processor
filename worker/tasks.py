@@ -145,7 +145,7 @@ def divide(x, y):
 def process_text_task(self, textToProcess: str, documentId: str, generateQuestions: bool, generateSummaries: bool):
     logging.info(f"Starting process for document {documentId}")
     self.update_state(state=AppConfig.PROCESSING_DOCUMENT, meta={"documentId": documentId})
-
+ 
     global active_tasks_count
 
     # Task Concurrency Management

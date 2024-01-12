@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile-api
     command: "uvicorn app.main:app --reload --host 0.0.0.0"
     ports:
-      - "8000:8000"
+      - "8080:8000"
     networks:
       - api_network
     volumes:
