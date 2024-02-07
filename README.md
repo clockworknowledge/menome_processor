@@ -3,6 +3,9 @@ worker agent API for processing data for Menome Knowledge Vault
 
 Menome Processor is an aysnc dockerized API that contains long running processes for the Menome Knowledge Vault. 
 
+The Processor uses Neo4j graph database as vectorized data store, and via [LangChain](https://langchain.com/)
+ using Tomaz Bratanic's [Advanced RAG pattern as](https://neo4j.com/developer-blog/advanced-rag-strategies-neo4j/) foundation. 
+
 It uses FASTapi, Celery and Flower to manage long running async processes.
 
 ## Setting up:
