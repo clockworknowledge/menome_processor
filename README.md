@@ -10,6 +10,8 @@ It uses FASTapi, Celery and Flower to manage long running async processes.
 
 ## Setting up:
 
+The example is dockerized so can be run on any standard machine using docker. Docker build files and docker-compose are provided. 
+
 ### Neo4j Database
 
 The docker-compose file provides a default neo4j database, or neo4j Aura can be used in lieu of the docker one. 
@@ -166,6 +168,7 @@ Asking the question:
 **what is the memex?**
 
 Should return approximately:
+```
 {
   "answer": "The memex is a hypothetical device envisioned by Vannevar Bush that acts as a mechanized private file and library. It is designed so that an individual can store all their books, records, and communications, which can then be consulted with great speed and flexibility. The memex would be capable of storing vast amounts of data, accessed through a device that operates using microfilm technology, with a system that allows for associative indexing, enabling items to select and pull up related items immediately.\n\n",
   "sources": [
@@ -337,9 +340,6 @@ Should return approximately:
     "db_response_size": 8480
   }
 }
-```
-
-
 ```
 
 Using MIT license - share and enjoy! 
