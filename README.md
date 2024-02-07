@@ -115,6 +115,15 @@ Question:
 * "name": f"{i+1}-{iq+1}", 
 * "embedding": text embedding for similarity search
 
+### RAG Chat Pattern
+
+The LLM integration relies on the Advanced Retrieval Augmented Generation pattern known as Parent. This pattern leverages the graph and the graph document structure to provide both more specific, targeted answers to questions, while also returning focused sources. It does this by leveraging the graph document combined with the neo4j vector index and cosine similarity. The 'Child' chunks contain small, overlapping tokenized chunks of text are matched based on embedding similarity with the incoming question. 
+
+The graph is used to look back up from the Child chunks, to the page they are associated with. The pages that are 'hit' and their overall parent Document are then collected and returned as part of a JSON response. 
+
+This allows for very rich results to be returned including the source chunks, summary of the asssociated page, and the parent document. This pattern is extremely useful for giving the user specifically targeted answers, combined with the context of those answers.
+
+
 ### Running the system
 
 Start the Neo4j intance if you are using neo4j desktop locally. 
