@@ -14,6 +14,14 @@ class AppConfig:
     NEO4J_CHUNK_TEXT_PROPERTY = config('NEO4J_CHUNK_TEXT_PROPERTY', default='text')
     NEO4J_CHUNK_EMBEDDING_PROPERTY = config('NEO4J_CHUNK_EMBEDDING_PROPERTY', default='embedding')
 
+    # DEFAULT USER:
+    DEFAULT_USER_UUID = config('DEFAULT_USER_UUID', default='00000000-0000-0000-0000-000000000000')
+    DEFAULT_USER_USERNAME = config('DEFAULT_USER_USERNAME', default='admin')
+    DEFAULT_USER_EMAIL = config('DEFAULT_USER_EMAIL',
+                                default='test@test.com')
+    DEFAULT_USER_NAME = config('DEFAULT_USER_NAME', default='Admin')
+    DEFAULT_USER_PASSWORD = config('DEFAULT_USER_PASSWORD', default='test')
+
     # OpenAI Configuration
     OPENAI_API_KEY = config('OPENAI_API_KEY')
     EMBEDDING_DIMENSION = config('EMBEDDING_DIMENSION', cast=int, default=1536)

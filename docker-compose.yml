@@ -1,20 +1,27 @@
 version: '3.8'
 services:
   api:
-    container_name: menome_api
+    container_name: menome_processor_api
     build:
       context: .
       dockerfile: Dockerfile-api
-    command: "uvicorn app.main:app --reload --host 0.0.0.0"
+    command:  sh -c "dockerize -wait tcp://neo4j:7687 -timeout 60s &&  uvicorn app.main:app --reload --host 0.0.0.0"
     ports:
-      - "8080:8000"
+      - "8000:8000"
     networks:
       - api_network
     volumes:
       - ./config:/code/config
+    environment:
+    - NEO4J_URI=bolt://neo4j:7687
+    - NEO4J_USERNAME=neo4j
+    - NEO4J_PASSWORD=password
+    depends_on:
+      - neo4j
+      - rabbit
 
   rabbit:
-    container_name: menome_rabbit
+    container_name: menome_processor_rabbit
     image: rabbitmq:3.12-management
     ports:
       - "15672:15672"
@@ -31,6 +38,8 @@ services:
       - api_network
     volumes:
       - ./config:/code/config
+    depends_on:
+    - rabbit
 
   flower:
     image: mher/flower
@@ -40,8 +49,27 @@ services:
       - "8888:5555"
     depends_on:
       - rabbit
+      - celery_worker
     networks:
       - api_network
+
+  neo4j:
+    image: neo4j:latest
+    container_name: menome_processor_neo4j
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    volumes:
+      - ./neo4jdata/data:/data
+      - ./neo4jdata/logs:/logs
+      - ./neo4jdata/import:/var/lib/neo4j/import
+      - ./neo4jdata/plugins:/plugins
+    environment:
+      - NEO4J_AUTH=neo4j/password  # Set your desired username/password
+    networks:
+      - api_network
+
+
 networks:
   api_network:
     name: api_network

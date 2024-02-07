@@ -1,5 +1,22 @@
-# Use the official Python 3 image as a parent image
+# Use the official Python 3.10 image as a parent image
 FROM python:3.10-slim
+
+# Install dependencies required for wget and SSL certificates
+RUN apt-get update && apt-get install -y wget \
+    && apt-get install -y libssl-dev ca-certificates \
+    && update-ca-certificates
+
+# Set the Dockerize version
+ENV DOCKERIZE_VERSION v0.6.1
+
+# Download and install Dockerize
+RUN wget https://github.com/jwilder/dockerize/releases/download/$DOCKERIZE_VERSION/dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz \
+    && tar -C /usr/local/bin -xzvf dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz \
+    && rm dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz
+
+# Clean up the apt cache by removing /var/lib/apt/lists to reduce the image size
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
+
 
 # Set the working directory in the container to /code
 WORKDIR /code

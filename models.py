@@ -6,6 +6,11 @@ from enum import Enum
 from typing import List
 from langchain.pydantic_v1 import Field
 
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+
+
 # Models
 class UserIn(BaseModel):
     uuid: Optional[str] = None
@@ -25,12 +30,13 @@ class User(BaseModel):
     datecreated: Optional[datetime] = None
 
 class DocumentRequest(BaseModel):
-    url: HttpUrl
+    url: str
+    note: Optional[str] = None
 
 class DocumentResponse(BaseModel):
     uuid: str
     name: str
-    url: HttpUrl
+    url: str
     text: str
     imageurl: str
     publisher: str

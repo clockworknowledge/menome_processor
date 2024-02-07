@@ -4,12 +4,9 @@ from celery.result import AsyncResult
 from neo4j import GraphDatabase
 from neo4j.exceptions import Neo4jError
 
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores.neo4j_vector import Neo4jVector
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.text_splitter import TokenTextSplitter
 from langchain.document_loaders import telegram
-from langchain.prompts import ChatPromptTemplate
 from langchain.pydantic_v1 import BaseModel, Field
 from langchain.chat_models import ChatOpenAI
 

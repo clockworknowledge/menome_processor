@@ -12,16 +12,11 @@ from datetime import datetime,  timedelta
 from worker.tasks import process_text_task, get_task_info, purge_celery_queue
 
 from config import AppConfig
-
-from config import AppConfig
 from dotenv import load_dotenv
 
 # Assuming your .env file is in /code/config/.env inside the container
 dotenv_path = '/code/config/.env'
 load_dotenv(dotenv_path)
-
-# Initialize environment variables if needed
-AppConfig.initialize_environment_variables()
 
 # Initialize environment variables if needed
 AppConfig.initialize_environment_variables()
@@ -114,7 +109,9 @@ from fastapi import APIRouter, Query, Depends
 
 router = APIRouter()
 
-@router.post("/process-documents/", tags=["Content", "Documents"])
+@router.post("/process-documents", tags=[ "Process"]
+             , description="Process documents in the database"
+             , summary="Process documents in the database that have not had pages, questions or summaries created. Helps illustrate async processing")
 async def process_documents(
     document_limit: int = Query(default=None, description="Limit on number of documents to process"),
     generateQuestions: bool = Query(default=False, description="Flag to generate questions"),
@@ -169,7 +166,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
-@router.post("/divide/")
+@router.post("/divide")
 async def divide(x: int, y: int):
     from worker.tasks import divide
     result = divide.delay(x, y)
@@ -184,7 +181,7 @@ async def get_task_status(task_id: str):
     return get_task_info(task_id)
 
 
-@router.post("/purge-queue/", tags=["Queue Management"])
+@router.post("/purge-queue", tags=["Queue Management"], description="Purge all tasks in the Celery queue", summary="Purge all tasks in the Celery queue")
 async def purge_queue(current_user: User = Depends(get_current_user)):
     """
     Purge all tasks in the Celery queue.
