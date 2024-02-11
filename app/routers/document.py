@@ -26,8 +26,6 @@ llm = ChatOpenAI(temperature=0, model="gpt-4-1106-preview")
 # Initialize environment variables if needed
 AppConfig.initialize_environment_variables()
 
-# Assuming you have a Neo4j driver instance
-driver = GraphDatabase.driver(AppConfig.NEO4J_URI, auth=(AppConfig.NEO4J_USER, AppConfig.NEO4J_PASSWORD))
 
 # Inside documents.py
 def extract_title(soup: BeautifulSoup, document_id: str) -> str:
@@ -118,6 +116,9 @@ async def add_document(request: DocumentRequest, current_user: User = Depends(ge
     headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.36 Edge/17.17134"
 }
+    # Assuming you have a Neo4j driver instance
+    driver = GraphDatabase.driver(AppConfig.NEO4J_URI, auth=(AppConfig.NEO4J_USER, AppConfig.NEO4J_PASSWORD))
+
     logging.basicConfig(level=logging.INFO)
 
     logging.info(f"Fetching document from {request.url}")
@@ -182,7 +183,7 @@ async def add_document(request: DocumentRequest, current_user: User = Depends(ge
             }).consume()
         session.write_transaction(create_document)
 
-        #try:
+    try:
         task_ids = []
         logging.info(f"Queueing document {documentId} for processing.")
         with driver.session() as session:
@@ -193,9 +194,11 @@ async def add_document(request: DocumentRequest, current_user: User = Depends(ge
             task = process_text_task.delay(text, documentId, True, True)
             task_ids.append(task.id)
             logging.info(f"Queued document {documentId} with task ID {task.id}")
-    #except Exception as e:
-        #logging.error(f"Failed to queue document {documentId}: {e}")
-
+    except Exception as e:
+        logging.error(f"Failed to queue document {documentId}: {e}")
+    finally:
+        session.close()
+        driver.close()
         return {
             "message": f"Processing started for {len(documentId)} documents",
             "task_ids": task_ids

@@ -1,12 +1,17 @@
 # menome_processor
-worker agent API for processing data for Menome Knowledge Vault
 
-Menome Processor is an aysnc dockerized API that contains long running processes for the Menome Knowledge Vault. 
+## Overview
+
+I developed the menome_processor to experiment with the Retrieval Augmented Generation (RAG) pattern. The objective is to provide a basic, but fully functional API for processing URLs from websites into a Graph Document format that is amenable to supporting RAG using a neo4j graph database as the backing store. 
+
+Since decomposing documents down into pages and chunks that are amenable to RAG is a long running process, I wanted to use an asyc messaging based pattern. The patterns used are influenced by the work done on the original Menome dataLink system, and by the excellent blog series on RAG by [Tomaz Bratanic](https://bratanic-tomaz.medium.com/).
 
 The Processor uses Neo4j graph database as vectorized data store, and via [LangChain](https://langchain.com/)
  using Tomaz Bratanic's [Advanced RAG pattern as](https://neo4j.com/developer-blog/advanced-rag-strategies-neo4j/) foundation. 
 
-It uses FASTapi, Celery and Flower to manage long running async processes.
+It uses FASTapi for the API layer, Celery for the worker, RabbitMQ for the message broker and Flower to manage long running async processes.
+
+The example also has a basic autentication pattern. 
 
 ## Setting up:
 
@@ -134,7 +139,7 @@ Start the Neo4j intance if you are using neo4j desktop locally.
 Start by running:
 **docker-compose build** 
 
-This should build images defined in the Dockerfiles provided in the docker-compose yaml file. 
+This will build images defined in the Dockerfiles for the API and the Worker provided in the docker-compose yaml file. 
 
 **docker-compose up** will pull the rabbit and flower containers and then run them. 
 
@@ -143,8 +148,8 @@ The docker logs should show the four containers started.
 The following ports and endpoints are available:
 
 * The API will be accessible at: **http://localhost:8000/docs** 
-* RabbitMQ management console: **http://localhost:15762** using the username and password from the config
-* Flower is available at: **http://localhost:8888** for monitoring the worker
+* RabbitMQ management console: **http://localhost:15762** using the username and password from the config [Documentaiton for RabbitMQ](https://www.rabbitmq.com/management.html)
+* Flower is available at: **http://localhost:8888** for monitoring the worker [Documentation for flower](https://flower.readthedocs.io/en/latest/index.html)
 
 
 
@@ -161,6 +166,8 @@ https://www.theatlantic.com/magazine/archive/1945/07/as-we-may-think/303881/
 Use the **add-document** endpoint to add the document to the graph. This procedure will trigger the async process that decomposes the document down in to a graph document. 
 
 You will see the celery_worker_1 process gradually break the document down into pages, chunks, questions and summary. 
+
+You can use the [neo4j browser]( http://localhost:7474) to inspect the graph that results.  
 
 You can use the Chat endpoint to ask questions about the documents stored in the graph. 
 

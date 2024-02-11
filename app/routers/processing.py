@@ -60,6 +60,7 @@ def neo4j_datetime_to_python_datetime(neo4j_dt_str: str) -> datetime:
 
 # Get user from database
 def get_user_from_db(username: str):
+    driver = GraphDatabase.driver(AppConfig.NEO4J_URI, auth=(AppConfig.NEO4J_USER, AppConfig.NEO4J_PASSWORD))
     with driver.session() as session:
         result = session.run("MATCH (u:User {username: $username}) RETURN u", username=username)
         user_data = result.single()
@@ -75,6 +76,8 @@ def get_user_from_db(username: str):
                 disabled=user_data['u']['disabled'],
                 datecreated=date_created
             )
+    session.close()
+    driver.close()
     return None
 
 
@@ -99,16 +102,10 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
         raise credentials_exception
     return user
 
-
+## Endpoints
 router = APIRouter()
 
-# Assuming you have a Neo4j driver instance
-driver = GraphDatabase.driver(AppConfig.NEO4J_URI, auth=(AppConfig.NEO4J_USER, AppConfig.NEO4J_PASSWORD))
-
-from fastapi import APIRouter, Query, Depends
-
-router = APIRouter()
-
+## Process documents in the database using workers
 @router.post("/process-documents", tags=[ "Process"]
              , description="Process documents in the database"
              , summary="Process documents in the database that have not had pages, questions or summaries created. Helps illustrate async processing")
@@ -118,6 +115,9 @@ async def process_documents(
     generateSummaries: bool = Query(default=False, description="Flag to generate summaries"),
     current_user: User = Depends(get_current_user)):
     logging.basicConfig(level=logging.INFO)
+    
+    # Setup neo4j driver
+    driver = GraphDatabase.driver(AppConfig.NEO4J_URI, auth=(AppConfig.NEO4J_USER, AppConfig.NEO4J_PASSWORD))
 
     query = "MATCH (a:Document) WHERE NOT (a)-[:HAS_PAGE]->(:Page) and a.text <> '' and a.process=True RETURN a.uuid as uuid"
     if document_limit is not None:
@@ -128,6 +128,7 @@ async def process_documents(
     with driver.session() as session:
         result = session.run(query)
         document_ids = [record['uuid'] for record in result]
+    session.close()
 
     logging.info(f"Found {len(document_ids)} documents to process.")
     
@@ -145,12 +146,16 @@ async def process_documents(
                 logging.info(f"Queued document {document_id} with task ID {task.id}")
         except Exception as e:
             logging.error(f"Failed to queue document {document_id}: {e}")
+        finally:
+            session.close()
+            driver.close()
 
     return {
         "message": f"Processing started for {len(document_ids)} documents",
         "task_ids": task_ids
     }
 
+## Returns an access token based on username and password
 @router.post("/token", response_model=Token, description="Returns an access token", summary="Returns an access token", tags=["Users"])
 async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
     user = authenticate_user(form_data.username, form_data.password)
@@ -166,6 +171,7 @@ async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
+## Basic health check
 @router.post("/divide")
 async def divide(x: int, y: int):
     from worker.tasks import divide
@@ -173,6 +179,7 @@ async def divide(x: int, y: int):
     return {"task_id": result.id}
 
 
+## Returns the status of the submitted Task
 @router.get("/task/{task_id}")
 async def get_task_status(task_id: str): 
     """
@@ -181,6 +188,7 @@ async def get_task_status(task_id: str):
     return get_task_info(task_id)
 
 
+## Purge all tasks in the Celery queue
 @router.post("/purge-queue", tags=["Queue Management"], description="Purge all tasks in the Celery queue", summary="Purge all tasks in the Celery queue")
 async def purge_queue(current_user: User = Depends(get_current_user)):
     """

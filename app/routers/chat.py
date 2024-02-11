@@ -45,7 +45,6 @@ openai.api_key =  AppConfig.OPENAI_API_KEY
 
 # Initialize Neo4j driver (do this once, e.g., at the top of your file or in another module)
 uri = AppConfig.NEO4J_URI
-driver = GraphDatabase.driver(uri, auth=(AppConfig.NEO4J_USER, AppConfig.NEO4J_PASSWORD))  
 
 # Add typing for input
 class Question(BaseModel):
@@ -115,6 +114,8 @@ class ChatRequest(BaseModel):
              description="This endpoint provides a chat response along with sources of information. It uses the ChatOpenAI model for generating responses.",
              tags=["Chat", "Sources"])
 def chatSourcesquestion(question: str = Query(..., description="The question to be processed"), current_user: User = Depends(get_current_user)):
+    driver = GraphDatabase.driver(uri, auth=(AppConfig.NEO4J_USER, AppConfig.NEO4J_PASSWORD))  
+
     # Start measuring time
     start_time = time.time()
     request_payload = json.dumps({"question": question}).encode('utf-8')
@@ -158,6 +159,8 @@ def chatSourcesquestion(question: str = Query(..., description="The question to 
     response_duration = langchain_response_time - setup_time
     fetch_duration = neo4j_fetch_time - langchain_response_time
     total_duration = neo4j_fetch_time - start_time
+    
+    driver.close()
 
     return {
         "answer": answer,
