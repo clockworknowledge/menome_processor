@@ -61,7 +61,7 @@ FLOWER_HOST="localhost"
 LOG_LEVEL="debug"
 LOG_DIAGNOSE=true
 LOG_FORMAT="<level>{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {module}:{function}:{line} - {message}</level>"
-'''
+```
 
 ### Graph Document Structure:
 
