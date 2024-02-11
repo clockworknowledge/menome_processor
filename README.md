@@ -24,7 +24,7 @@ This particular example relies on OpenAI's API - so you will need an OpenAI key.
 
 ### .env file in /config
 You will need a .evn file in a /config folder with the following set:
-
+```
 NEO4J_URI=neo4j+s://URL
 NEO4J_USER=neo4j
 NEO4J_PASSWORD=neo4j password
@@ -61,6 +61,7 @@ FLOWER_HOST="localhost"
 LOG_LEVEL="debug"
 LOG_DIAGNOSE=true
 LOG_FORMAT="<level>{time:YYYY-MM-DD HH:mm:ss.SSS} | {level:<8} | {module}:{function}:{line} - {message}</level>"
+'''
 
 ### Graph Document Structure:
 
@@ -143,7 +144,7 @@ The following ports and endpoints are available:
 
 * The API will be accessible at: **http://localhost:8000/docs** 
 * RabbitMQ management console: **http://localhost:15762** using the username and password from the config
-* Flower is available at: **http://localhost:8888** 
+* Flower is available at: **http://localhost:8888** for monitoring the worker
 
 
 
