@@ -4,7 +4,7 @@
 
 I developed the menome_processor to experiment with the Retrieval Augmented Generation (RAG) pattern. The objective is to provide a basic, but fully functional API for processing URLs from websites into a Graph Document format that is amenable to supporting RAG using a neo4j graph database as the backing store. 
 
-Since decomposing documents down into pages and chunks that are amenable to RAG is a long running process, I wanted to use an asyc messaging based pattern. The patterns used are influenced by the work done on the original Menome dataLink system, and by the excellent blog series on RAG by [Tomaz Bratanic](https://bratanic-tomaz.medium.com/).
+Since decomposing documents down into pages and chunks that are amenable to RAG is a long running process, I wanted to use an asyc messaging based pattern. The patterns used are influenced by the work done on the original Menome dataLink system (the startup I co-founded, acquired by Arcurve in 2020)[https://menome.com/](https://menome.com/), and by the excellent blog series on RAG by [Tomaz Bratanic](https://bratanic-tomaz.medium.com/).
 
 The Processor uses Neo4j graph database as vectorized data store, and via [LangChain](https://langchain.com/)
  using Tomaz Bratanic's [Advanced RAG pattern as](https://neo4j.com/developer-blog/advanced-rag-strategies-neo4j/) foundation. 
@@ -165,7 +165,24 @@ https://www.theatlantic.com/magazine/archive/1945/07/as-we-may-think/303881/
 
 Use the **add-document** endpoint to add the document to the graph. This procedure will trigger the async process that decomposes the document down in to a graph document. 
 
-You will see the celery_worker_1 process gradually break the document down into pages, chunks, questions and summary. 
+You will see the celery_worker_1 process gradually break the document down into pages, chunks, questions and summary:
+
+```
+elery_worker-1          |
+celery_worker-1          | [2024-02-11 15:42:44,911: INFO/ForkPoolWorker-16] processing chunk 1 of 3 for document 9a003391-8f34-452f-a0f6-4dedcd0fe5ee
+celery_worker-1          | [2024-02-11 15:42:46,832: INFO/ForkPoolWorker-16] processing chunk 2 of 3 for document 9a003391-8f34-452f-a0f6-4dedcd0fe5ee
+celery_worker-1          | [2024-02-11 15:42:48,022: INFO/ForkPoolWorker-16] processing chunk 3 of 3 for document 9a003391-8f34-452f-a0f6-4dedcd0fe5ee
+celery_worker-1          | [2024-02-11 15:42:48,887: INFO/ForkPoolWorker-16] Generating questions for document 9a003391-8f34-452f-a0f6-4dedcd0fe5ee
+celery_worker-1          | [2024-02-11 15:42:48,890: INFO/ForkPoolWorker-16] Generating questions for page 1 of 3 for document 9a003391-8f34-452f-a0f6-4dedcd0fe5ee  
+celery_worker-1          | [2024-02-11 15:43:11,252: INFO/ForkPoolWorker-16] Generating questions for page 2 of 3 for document 9a003391-8f34-452f-a0f6-4dedcd0fe5ee
+celery_worker-1          | [2024-02-11 15:43:23,706: INFO/ForkPoolWorker-16] Generating questions for page 3 of 3 for document 9a003391-8f34-452f-a0f6-4dedcd0fe5ee  
+celery_worker-1          | [2024-02-11 15:43:39,064: INFO/ForkPoolWorker-16] Generating summary for page 1 of 3 for document 9a003391-8f34-452f-a0f6-4dedcd0fe5ee    
+celery_worker-1          | [2024-02-11 15:43:46,136: INFO/ForkPoolWorker-16] Generating summary for page 2 of 3 for document 9a003391-8f34-452f-a0f6-4dedcd0fe5ee    
+celery_worker-1          | [2024-02-11 15:43:50,086: INFO/ForkPoolWorker-16] Generating summary for page 3 of 3 for document 9a003391-8f34-452f-a0f6-4dedcd0fe5ee    
+celery_worker-1          | [2024-02-11 15:44:01,645: INFO/ForkPoolWorker-16] Successfully processed document 9a003391-8f34-452f-a0f6-4dedcd0fe5ee
+celery_worker-1          | [2024-02-11 15:44:01,646: INFO/ForkPoolWorker-16] Task celery_worker.process_text_task[7cd5240e-8d1b-4065-a0b8-86602acf7ee9] succeeded in 77.76827231500647s: {'message': 'Success', 'uuid': '9a003391-8f34-452f-a0f6-4dedcd0fe5ee', 'task_id': '7cd5240e-8d1b-4065-a0b8-86602acf7ee9'}
+
+```
 
 You can use the [neo4j browser]( http://localhost:7474) to inspect the graph that results.  
 
